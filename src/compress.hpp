@@ -38,7 +38,7 @@ typedef struct {
 // double core_price = -1;
 // int core_nplanes;
 
-vector<uint64_t> encode_array(dimensions d, double* c, size_t size, double sse, core_struct& core_info, bool verbose=false) {
+vector<uint64_t> encode_array(writer &w, dimensions d, double* c, size_t size, double sse, core_struct& core_info, bool verbose=false) {
 
     // If size is 0 (only happens if data was all zeros), return empty vector
     if (size == 0)
@@ -140,7 +140,7 @@ vector<uint64_t> encode_array(dimensions d, double* c, size_t size, double sse, 
 
     uint64_t tmp;
     memcpy(&tmp, (void*)&scale, sizeof(scale));
-    write_bits(tmp, 64);
+    write_bits(w, tmp, 64);
 
     // Vector of quantized core coefficients
     vector<uint64_t> coreq(size);
@@ -192,19 +192,19 @@ vector<uint64_t> encode_array(dimensions d, double* c, size_t size, double sse, 
         rle.push_back(counter);
 
         uint64_t rawsize = raw.size();
-        write_bits(rawsize, 64);
+        write_bits(w, rawsize, 64);
         total_bits += 64;
 
         {
             // high_resolution_clock::time_point timenow = chrono::high_resolution_clock::now();
             for (size_t i = 0; i < raw.size(); ++i)
-                write_bits(raw[i], 1);
+                write_bits(w, raw[i], 1);
             total_bits += raw.size();
             // raw_time += std::chrono::duration_cast<std::chrono::microseconds>(chrono::high_resolution_clock::now() - timenow).count()/1000.;
         }
         {
             // high_resolution_clock::time_point timenow = chrono::high_resolution_clock::now();
-            uint64_t this_part = encode(rle);
+            uint64_t this_part = encode(w, rle);
             // rle_time += std::chrono::duration_cast<std::chrono::microseconds>(chrono::high_resolution_clock::now() - timenow).count()/1000.;
             total_bits += this_part;
         }
@@ -228,8 +228,8 @@ vector<uint64_t> encode_array(dimensions d, double* c, size_t size, double sse, 
         if (raw.size()/double(size) > 0.8)
             all_raw = true;
 
-        write_bits(all_raw, 1);
-        write_bits(done, 1);
+        write_bits(w, all_raw, 1);
+        write_bits(w, done, 1);
         total_bits += 2;
 
         if (done)
@@ -244,7 +244,7 @@ vector<uint64_t> encode_array(dimensions d, double* c, size_t size, double sse, 
 
     for (size_t i = 0; i < size; ++i) {
         if (current[i] > 0) {
-            write_bits((c[i] > 0), 1);
+            write_bits(w, (c[i] > 0), 1);
             total_bits++;
         }
     }
@@ -330,10 +330,11 @@ double *compress(dimensions d, string input_file, string compressed_file, string
     // Save tensor dimensionality, sizes and type
     /********************************************/
 
-    open_write(compressed_file.c_str());
-    write_stream(reinterpret_cast < unsigned char *> (&d.n), sizeof(d.n));
-    write_stream(reinterpret_cast < unsigned char *> (&d.s[0]), d.n*sizeof(d.s[0]));
-    write_stream(reinterpret_cast < unsigned char *> (&io_type_code), sizeof(io_type_code));
+    ofstream compressed_stream(compressed_file.c_str(), ios::out | ios::binary);
+    writer w = writer(compressed_stream);
+    write_stream(w, reinterpret_cast < unsigned char *> (&d.n), sizeof(d.n));
+    write_stream(w, reinterpret_cast < unsigned char *> (&d.s[0]), d.n*sizeof(d.s[0]));
+    write_stream(w, reinterpret_cast < unsigned char *> (&io_type_code), sizeof(io_type_code));
 
     /*****************************/
     // Load input file into memory
@@ -423,9 +424,9 @@ double *compress(dimensions d, string input_file, string compressed_file, string
     core_struct core_info;
     core_info.is_core = true;
     core_info.core_price = -1;
-    open_wbit();
-    vector<uint64_t> current = encode_array(d, c, size, sse, core_info, verbose);
-    close_wbit();
+    open_wbit(w);
+    vector<uint64_t> current = encode_array(w, d, c, size, sse, core_info, verbose);
+    close_wbit(w);
 
     /*******************************/
     // Compute and save tensor ranks
@@ -469,22 +470,23 @@ double *compress(dimensions d, string input_file, string compressed_file, string
             cout << " " << d.r[i];
         cout << endl;
     }
-    write_stream(reinterpret_cast<unsigned char*> (&d.r[0]), d.n*sizeof(d.r[0]));
+    write_stream(w, reinterpret_cast<unsigned char*> (&d.r[0]), d.n*sizeof(d.r[0]));
 
     for (uint8_t i = 0; i < d.n; ++i)
-        write_stream(reinterpret_cast<uint8_t*> (slicenorms[i].data()), d.r[i]*sizeof(double));
-    open_wbit();
+        write_stream(w, reinterpret_cast<uint8_t*> (slicenorms[i].data()), d.r[i]*sizeof(double));
+    open_wbit(w);
     core_info.is_core = false;
     for (int dim = 0; dim < d.n; ++dim) {
         MatrixXd Uweighted = Us[dim].leftCols(d.r[dim]);
         for (size_t col = 0; col < d.r[dim]; ++col)
             Uweighted.col(col) = Uweighted.col(col)*slicenorms[dim][col];
-        encode_array(d, Uweighted.data(), d.s[dim]*d.r[dim], 0, core_info, false);  //*(s[i]*s[i]/sprod[n]));
+        encode_array(w, d, Uweighted.data(), d.s[dim]*d.r[dim], 0, core_info, false);  //*(s[i]*s[i]/sprod[n]));
     }
-    close_wbit();
-    close_write();
+    close_wbit(w);
+    size_t newbits = w.total_written_bytes * 8;
+    compressed_stream.flush();
+    compressed_stream.close();
     delete[] c;
-    size_t newbits = zs.total_written_bytes * 8;
     cout << "oldbits = " << size * io_type_size * 8L << ", newbits = " << newbits << ", compressionratio = " << size * io_type_size * 8L / double (newbits)
 << ", bpv = " << newbits / double (size) << endl << flush;
     return data;

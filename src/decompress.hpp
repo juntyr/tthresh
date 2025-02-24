@@ -19,13 +19,13 @@
 using namespace std;
 using namespace Eigen;
 
-vector<uint64_t> decode_array(size_t size, bool is_core, int& q, size_t& pointer, double& maximum, bool verbose, bool debug) {
+vector<uint64_t> decode_array(reader &r, size_t size, bool is_core, int& q, size_t& pointer, double& maximum, bool verbose, bool debug) {
 
     // If size is 0 (only happens if data was all zeros), return empty vector
     if (size == 0)
         return vector<uint64_t>();
 
-    uint64_t tmp = read_bits(64);
+    uint64_t tmp = read_bits(r, 64);
     memcpy(&maximum, (void*)&tmp, sizeof(tmp));
 
     vector<uint64_t> current(size, 0);
@@ -41,7 +41,7 @@ vector<uint64_t> decode_array(size_t size, bool is_core, int& q, size_t& pointer
     for (q = 63; q >= 0; --q) {
         if (verbose and is_core)
             cout << "Decoding core's bit plane p = " << q << endl;
-        uint64_t rawsize = read_bits(64);
+        uint64_t rawsize = read_bits(r, 64);
 
         size_t read_from_rle = 0;
         size_t read_from_raw = 0;
@@ -49,22 +49,22 @@ vector<uint64_t> decode_array(size_t size, bool is_core, int& q, size_t& pointer
         if (all_raw) {
             high_resolution_clock::time_point timenow = chrono::high_resolution_clock::now();
             for (uint64_t pointer = 0; pointer < rawsize; ++pointer) {
-                current[pointer] |= read_bits(1) << q;
+                current[pointer] |= read_bits(r, 1) << q;
             }
             unscramble_time += std::chrono::duration_cast<std::chrono::microseconds>(chrono::high_resolution_clock::now() - timenow).count()/1000.;
             vector<size_t> rle;
-            decode(rle);
+            decode(r, rle);
         }
         else {
             vector<bool> raw;
             high_resolution_clock::time_point timenow = chrono::high_resolution_clock::now();
             for (uint64_t i = 0; i < rawsize; ++i)
-                raw.push_back(read_bits(1));
+                raw.push_back(read_bits(r, 1));
             decode_raw_time += std::chrono::duration_cast<std::chrono::microseconds>(chrono::high_resolution_clock::now() - timenow).count()/1000.;
 
             vector<size_t> rle;
             timenow = chrono::high_resolution_clock::now();
-            decode(rle);
+            decode(r, rle);
             decode_rle_time += std::chrono::duration_cast<std::chrono::microseconds>(chrono::high_resolution_clock::now() - timenow).count()/1000.;
 
             int64_t raw_index = 0;
@@ -108,9 +108,9 @@ vector<uint64_t> decode_array(size_t size, bool is_core, int& q, size_t& pointer
             unscramble_time += std::chrono::duration_cast<std::chrono::microseconds>(chrono::high_resolution_clock::now() - timenow).count()/1000.;
         }
 
-        all_raw = read_bits(1);
+        all_raw = read_bits(r, 1);
 
-        bool done = read_bits(1);
+        bool done = read_bits(r, 1);
         if (done)
             break;
         else
@@ -123,7 +123,7 @@ vector<uint64_t> decode_array(size_t size, bool is_core, int& q, size_t& pointer
     return current;
 }
 
-vector<double> dequantize(vector<uint64_t>& current, int q, size_t pointer, double& maximum) { // TODO after resize
+vector<double> dequantize(reader &r, vector<uint64_t>& current, int q, size_t pointer, double& maximum) { // TODO after resize
     size_t size = current.size();
     vector<double> c(size, 0);
     for (size_t i = 0; i < size; ++i) {
@@ -134,7 +134,7 @@ vector<double> dequantize(vector<uint64_t>& current, int q, size_t pointer, doub
             }
             else
                 current[i] += 1UL<<q;
-            char sign = read_bits(1);
+            char sign = read_bits(r, 1);
             c[i] = double(current[i]) / maximum * (sign*2-1);
         }
     }
@@ -147,10 +147,11 @@ void decompress(dimensions d, string compressed_file, string output_file, double
     // Read output tensor dimensionality, sizes and type
     /***************************************************/
 
-    open_read(compressed_file);
-    read_stream(reinterpret_cast<uint8_t*> (&d.n), sizeof(d.n));
+    ifstream compressed_stream(compressed_file.c_str(), ios::in | ios::binary);
+    reader r = reader(compressed_stream);
+    read_stream(r, reinterpret_cast<uint8_t*> (&d.n), sizeof(d.n));
     d.s = vector<uint32_t> (d.n);
-    read_stream(reinterpret_cast<uint8_t*> (&d.s[0]), d.n * sizeof(d.s[0]));
+    read_stream(r, reinterpret_cast<uint8_t*> (&d.s[0]), d.n * sizeof(d.s[0]));
 
     bool whole_reconstruction = cutout.size() == 0;
     if (cutout.size() < d.n) // Non-specified slicings are assumed to be the standard (0,1,-1)
@@ -184,7 +185,7 @@ void decompress(dimensions d, string compressed_file, string output_file, double
     }
 
     uint8_t io_type_code;
-    read_stream(reinterpret_cast<uint8_t*> (&io_type_code), sizeof(io_type_code));
+    read_stream(r, reinterpret_cast<uint8_t*> (&io_type_code), sizeof(io_type_code));
     uint8_t io_type_size;
     if (io_type_code == 0)
         io_type_size = sizeof(unsigned char);
@@ -204,16 +205,16 @@ void decompress(dimensions d, string compressed_file, string output_file, double
     int q;
     size_t pointer;
     double maximum;
-    vector<uint64_t> current = decode_array(d.sprod[d.n], true, q, pointer, maximum, verbose, debug);
-    vector<double> c = dequantize(current, q, pointer, maximum);
-    close_rbit();
+    vector<uint64_t> current = decode_array(r, d.sprod[d.n], true, q, pointer, maximum, verbose, debug);
+    vector<double> c = dequantize(r, current, q, pointer, maximum);
+    close_rbit(r);
 
     /*******************/
     // Read tensor ranks
     /*******************/
 
     d.r = vector<uint32_t> (d.n);
-    read_stream(reinterpret_cast<uint8_t*> (&d.r[0]), d.n*sizeof(d.r[0]));
+    read_stream(r, reinterpret_cast<uint8_t*> (&d.r[0]), d.n*sizeof(d.r[0]));
     d.rprod = vector<size_t> (d.n+1);
     d.rprod[0] = 1;
     for (uint8_t i = 0; i < d.n; ++i)
@@ -230,7 +231,7 @@ void decompress(dimensions d, string compressed_file, string output_file, double
         slicenorms[i] = RowVectorXd(d.r[i]);
         for (uint64_t col = 0; col < d.r[i]; ++col) { // TODO faster
             double norm;
-            read_stream(reinterpret_cast<uint8_t*> (&norm), sizeof(double));
+            read_stream(r, reinterpret_cast<uint8_t*> (&norm), sizeof(double));
             slicenorms[i][col] = norm;
         }
     }
@@ -262,8 +263,8 @@ void decompress(dimensions d, string compressed_file, string output_file, double
 
     vector< MatrixXd > Us;
     for (uint8_t i = 0; i < d.n; ++i) {
-        vector<uint64_t> factorq = decode_array(d.s[i]*d.r[i], false, q, pointer, maximum, verbose, debug);
-        vector<double> factor = dequantize(factorq, q, pointer, maximum);
+        vector<uint64_t> factorq = decode_array(r, d.s[i]*d.r[i], false, q, pointer, maximum, verbose, debug);
+        vector<double> factor = dequantize(r, factorq, q, pointer, maximum);
         MatrixXd Uweighted(d.s[i], d.r[i]);
         memcpy(Uweighted.data(), (void*)factor.data(), sizeof(double)*d.s[i]*d.r[i]);
         MatrixXd U(d.s[i], d.r[i]);
@@ -275,7 +276,8 @@ void decompress(dimensions d, string compressed_file, string output_file, double
         }
         Us.push_back(U);
     }
-    close_rbit();
+    close_rbit(r);
+    compressed_stream.close();
 
     /*************************/
     // Autocrop (if requested)

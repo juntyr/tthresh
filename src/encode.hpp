@@ -45,20 +45,20 @@ using namespace std;
 
 uint64_t encoding_bits;
 
-inline void put_bit(char bit) {
-    write_bits(bit, 1);
+inline void put_bit(writer &w, char bit) {
+    write_bits(w, bit, 1);
     encoding_bits++;
 }
 
-inline void put_bit_plus_pending(bool bit, int& pending_bits)
+inline void put_bit_plus_pending(writer &w, bool bit, int& pending_bits)
 {
-  put_bit(bit);
+  put_bit(w, bit);
   for ( int i = 0 ; i < pending_bits ; i++ )
-    put_bit(!bit);
+    put_bit(w, !bit);
   pending_bits = 0;
 }
 
-uint64_t encode(vector<uint64_t>& rle) {
+uint64_t encode(writer &w, vector<uint64_t>& rle) {
 
   constexpr uint64_t MAX_CODE = (((uint64_t)1) << CODE_VALUE_BITS)-1;
   constexpr uint64_t ONE_FOURTH = (MAX_CODE + ((uint64_t)1))/4;
@@ -86,7 +86,7 @@ uint64_t encode(vector<uint64_t>& rle) {
 
     // Number of key/frequency pairs
     uint64_t dict_size = frequencies.size();
-    write_bits(dict_size, sizeof(uint64_t)*8);
+    write_bits(w, dict_size, sizeof(uint64_t)*8);
 //    cerr << "dict_size: " << dict_size << endl;
     encoding_bits += sizeof(uint64_t)*8;
 
@@ -104,10 +104,10 @@ uint64_t encode(vector<uint64_t>& rle) {
             key_len++;
         }
         key_len = max(1, key_len); // A 0 still requires 1 bit for us
-        write_bits(key_len, 6);
+        write_bits(w, key_len, 6);
 
         // Next, the key itself
-        write_bits(key, key_len);
+        write_bits(w, key, key_len);
 
         // Now, the frequency's length
         uint8_t freq_len = 0;
@@ -117,17 +117,17 @@ uint64_t encode(vector<uint64_t>& rle) {
             freq_len++;
         }
         freq_len = max(1, freq_len); // A 0 still requires 1 bit for us
-        write_bits(freq_len, 6);
+        write_bits(w, freq_len, 6);
 
         // Finally, the frequency itself
-        write_bits(freq, freq_len);
+        write_bits(w, freq, freq_len);
 
         encoding_bits += 6 + key_len + 6 + freq_len;
     }
 
     // Number N of symbols to code
     uint64_t n_symbols = rle.size();
-    write_bits(n_symbols, sizeof(uint64_t)*8);
+    write_bits(w, n_symbols, sizeof(uint64_t)*8);
     encoding_bits += sizeof(uint64_t)*8;
 
     //*********
@@ -152,9 +152,9 @@ uint64_t encode(vector<uint64_t>& rle) {
 
       for ( ; ; ) {
         if ( high < ONE_HALF )
-          put_bit_plus_pending(0, pending_bits);
+          put_bit_plus_pending(w, 0, pending_bits);
         else if ( low >= ONE_HALF )
-          put_bit_plus_pending(1, pending_bits);
+          put_bit_plus_pending(w, 1, pending_bits);
         else if ( low >= ONE_FOURTH && high < THREE_FOURTHS ) {
           pending_bits++;
           low -= ONE_FOURTH;
@@ -173,11 +173,11 @@ uint64_t encode(vector<uint64_t>& rle) {
     }
     pending_bits++;
     if ( low < ONE_FOURTH )
-      put_bit_plus_pending(0, pending_bits);
+      put_bit_plus_pending(w, 0, pending_bits);
     else
-      put_bit_plus_pending(1, pending_bits);
+      put_bit_plus_pending(w, 1, pending_bits);
 
-    write_bits(0UL, CODE_VALUE_BITS-2); // Trailing zeros
+    write_bits(w, 0UL, CODE_VALUE_BITS-2); // Trailing zeros
     encoding_bits += CODE_VALUE_BITS-2;
 
 //    close_wbit();
