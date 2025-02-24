@@ -35,6 +35,8 @@ typedef struct {
     int core_nplanes;
 } core_struct;
 
+enum IOType { uchar_, ushort_, int_, float_, double_ };
+
 // double core_price = -1;
 // int core_nplanes;
 
@@ -256,81 +258,46 @@ vector<uint64_t> encode_array(writer &w, dimensions d, double* c, size_t size, d
     return current;
 }
 
-double *compress(dimensions d, string input_file, string compressed_file, string io_type, Target target, double target_value, size_t skip_bytes, bool verbose=false, bool debug=false) {
-
-    d.n = d.s.size();
-    if (verbose) {
-        cout << endl << "/***** Compression: " << to_string(d.n) << "D tensor of size " << d.s[0];
-        for (uint8_t i = 1; i < d.n; ++i)
-            cout << " x " << d.s[i];
-        cout << " *****/" << endl << endl;
-    }
-    cumulative_products(d.s, d.sprod);
-
+double* compress_stream(dimensions d, const char* in, ostream &compressed_stream, IOType io_type, Target target, double target_value, bool verbose=false, bool debug=false) {
     /***********************/
     // Check input data type
     /***********************/
 
     size_t size = d.sprod[d.n]; // Total number of tensor elements
-    uint8_t io_type_size, io_type_code;
-    if (io_type == "uchar") {
-        io_type_size = sizeof(unsigned char);
-        io_type_code = 0;
-    }
-    else if (io_type == "ushort") {
-        io_type_size = sizeof(unsigned short);
-        io_type_code = 1;
-    }
-    else if (io_type == "int") {
-        io_type_size = sizeof(int);
-        io_type_code = 2;
-    }
-    else if (io_type == "float") {
-        io_type_size = sizeof(float);
-        io_type_code = 3;
-    }
-    else {
-        io_type_size = sizeof(double);
-        io_type_code = 4;
-    }
-    
-    /************************/
-    // Check input file sizes
-    /************************/
 
-    size_t expected_size = skip_bytes + size * io_type_size;
-    ifstream input_stream(input_file.c_str(), ios::in | ios::binary);
-    if (!input_stream.is_open()) {
-        cout << "Error: could not open \"" << input_file << "\"" << endl;
-        exit(1);
-    }
-    size_t fsize = input_stream.tellg(); // Check that buffer size matches expected size
-    input_stream.seekg(0, ios::end);
-    fsize = size_t(input_stream.tellg()) - fsize;
-    if (expected_size != fsize) {
-        cout << "Invalid file size: expected ";
-        if (skip_bytes > 0)
-            cout << skip_bytes << " + ";
-        cout << "(" << d.s[0];
-        for (uint8_t i = 1; i < d.n; ++i)
-            cout << "*" << d.s[i];
-        cout << ")*" << int(io_type_size) << " = " << expected_size << " bytes, but found " << fsize << " bytes";
-        if (expected_size > fsize)
-            cout << " (" << expected_size / double (fsize) << " times too small)";
-        else
-            cout << " (" << fsize / double (expected_size) << " times too large)";
-        if (skip_bytes == 0 and expected_size < fsize and fsize < expected_size + 1000) {
-            cout << ". Perhaps the file has a header (use flag -k)?";
+    uint8_t io_type_size, io_type_code;
+    switch (io_type) {
+        case IOType::uchar_: {
+            io_type_size = sizeof(unsigned char);
+            io_type_code = 0;
+            break;
         }
-        cout << endl;
-        exit(1);
+        case IOType::ushort_: {
+            io_type_size = sizeof(unsigned short);
+            io_type_code = 1;
+            break;
+        }
+        case IOType::int_: {
+            io_type_size = sizeof(int);
+            io_type_code = 2;
+            break;
+        }
+        case IOType::float_: {
+            io_type_size = sizeof(float);
+            io_type_code = 3;
+            break;
+        }
+        case IOType::double_: {
+            io_type_size = sizeof(double);
+            io_type_code = 4;
+            break;
+        }
     }
 
     /********************************************/
     // Save tensor dimensionality, sizes and type
     /********************************************/
 
-    ofstream compressed_stream(compressed_file.c_str(), ios::out | ios::binary);
     writer w = writer(compressed_stream);
     write_stream(w, reinterpret_cast < unsigned char *> (&d.n), sizeof(d.n));
     write_stream(w, reinterpret_cast < unsigned char *> (&d.s[0]), d.n*sizeof(d.s[0]));
@@ -341,11 +308,7 @@ double *compress(dimensions d, string input_file, string compressed_file, string
     /*****************************/
 
     if (verbose)
-        start_timer("Loading and casting input data... ");
-    input_stream.seekg(skip_bytes);
-    char *in = new char[size * io_type_size];
-    input_stream.read(in, size * io_type_size);
-    input_stream.close();
+        start_timer("Casting input data... ");
 
     // Cast the data to doubles
     double datamin = numeric_limits < double >::max(); // Tensor statistics
@@ -353,23 +316,23 @@ double *compress(dimensions d, string input_file, string compressed_file, string
     double datanorm = 0;
 
     double *data;
-    if (io_type == "double")  // Input is already in doubles; no need to create another buffer for conversion
+    if (io_type == IOType::double_)  // Input is already in doubles; no need to create another buffer for conversion
         data = (double *)(in);
     else
         data = new double[size];
     for (size_t i = 0; i < size; ++i) {
-        switch (io_type_code) {
-            case 0:
-                data[i] = *reinterpret_cast< unsigned char* >(&in[i * io_type_size]);
+        switch (io_type) {
+            case IOType::uchar_:
+                data[i] = *reinterpret_cast< const unsigned char* >(&in[i * io_type_size]);
                 break;
-            case 1:
-                data[i] = *reinterpret_cast< unsigned short* >(&in[i * io_type_size]);
+            case IOType::ushort_:
+                data[i] = *reinterpret_cast< const unsigned short* >(&in[i * io_type_size]);
                 break;
-            case 2:
-                data[i] = *reinterpret_cast< int* >(&in[i * io_type_size]);
+            case IOType::int_:
+                data[i] = *reinterpret_cast< const int* >(&in[i * io_type_size]);
                 break;
-            case 3:
-                data[i] = *reinterpret_cast< float* >(&in[i * io_type_size]);
+            case IOType::float_:
+                data[i] = *reinterpret_cast< const float* >(&in[i * io_type_size]);
                 break;
         }
         datamin = min(datamin, data[i]); // Use the loop to update the statistics as well
@@ -377,8 +340,6 @@ double *compress(dimensions d, string input_file, string compressed_file, string
         datanorm += data[i] * data[i];
     }
     datanorm = sqrt(datanorm);
-    if (io_type_code != 4)
-        delete[] in;
     if (verbose)
         stop_timer();
     if (debug) cout << "Input statistics: min = " << datamin << ", max = " << datamax << ", norm = " << datanorm << endl;
@@ -484,11 +445,106 @@ double *compress(dimensions d, string input_file, string compressed_file, string
     }
     close_wbit(w);
     size_t newbits = w.total_written_bytes * 8;
-    compressed_stream.flush();
-    compressed_stream.close();
     delete[] c;
     cout << "oldbits = " << size * io_type_size * 8L << ", newbits = " << newbits << ", compressionratio = " << size * io_type_size * 8L / double (newbits)
 << ", bpv = " << newbits / double (size) << endl << flush;
+    return data;
+}
+
+double *compress(dimensions d, string input_file, string compressed_file, string io_type, Target target, double target_value, size_t skip_bytes, bool verbose=false, bool debug=false) {
+
+    d.n = d.s.size();
+    if (verbose) {
+        cout << endl << "/***** Compression: " << to_string(d.n) << "D tensor of size " << d.s[0];
+        for (uint8_t i = 1; i < d.n; ++i)
+            cout << " x " << d.s[i];
+        cout << " *****/" << endl << endl;
+    }
+    cumulative_products(d.s, d.sprod);
+
+    /***********************/
+    // Check input data type
+    /***********************/
+
+    size_t size = d.sprod[d.n]; // Total number of tensor elements
+    uint8_t io_type_size;
+    IOType io_type_enum;
+    if (io_type == "uchar") {
+        io_type_size = sizeof(unsigned char);
+        io_type_enum = IOType::uchar_;
+    }
+    else if (io_type == "ushort") {
+        io_type_size = sizeof(unsigned short);
+        io_type_enum = IOType::ushort_;
+    }
+    else if (io_type == "int") {
+        io_type_size = sizeof(int);
+        io_type_enum = IOType::int_;
+    }
+    else if (io_type == "float") {
+        io_type_size = sizeof(float);
+        io_type_enum = IOType::float_;
+    }
+    else {
+        io_type_size = sizeof(double);
+        io_type_enum = IOType::double_;
+    }
+    
+    /************************/
+    // Check input file sizes
+    /************************/
+
+    size_t expected_size = skip_bytes + size * io_type_size;
+    ifstream input_stream(input_file.c_str(), ios::in | ios::binary);
+    if (!input_stream.is_open()) {
+        cout << "Error: could not open \"" << input_file << "\"" << endl;
+        exit(1);
+    }
+    size_t fsize = input_stream.tellg(); // Check that buffer size matches expected size
+    input_stream.seekg(0, ios::end);
+    fsize = size_t(input_stream.tellg()) - fsize;
+    if (expected_size != fsize) {
+        cout << "Invalid file size: expected ";
+        if (skip_bytes > 0)
+            cout << skip_bytes << " + ";
+        cout << "(" << d.s[0];
+        for (uint8_t i = 1; i < d.n; ++i)
+            cout << "*" << d.s[i];
+        cout << ")*" << int(io_type_size) << " = " << expected_size << " bytes, but found " << fsize << " bytes";
+        if (expected_size > fsize)
+            cout << " (" << expected_size / double (fsize) << " times too small)";
+        else
+            cout << " (" << fsize / double (expected_size) << " times too large)";
+        if (skip_bytes == 0 and expected_size < fsize and fsize < expected_size + 1000) {
+            cout << ". Perhaps the file has a header (use flag -k)?";
+        }
+        cout << endl;
+        exit(1);
+    }
+
+    /*****************************/
+    // Load input file into memory
+    /*****************************/
+
+    if (verbose)
+        start_timer("Loading input data... ");
+    input_stream.seekg(skip_bytes);
+    char *in = new char[size * io_type_size];
+    input_stream.read(in, size * io_type_size);
+    input_stream.close();
+    if (verbose)
+        stop_timer();
+
+    ofstream compressed_stream(compressed_file.c_str(), ios::out | ios::binary);
+
+    double* data = compress_stream(d, in, compressed_stream, io_type_enum, target, target_value, verbose, debug);
+
+    if (reinterpret_cast<char*>(data) != in)
+        delete[] in;
+
+    compressed_stream.flush();
+    compressed_stream.close();
+    
     return data;
 }
 
