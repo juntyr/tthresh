@@ -141,13 +141,11 @@ vector<double> dequantize(reader &r, vector<uint64_t>& current, int q, size_t po
     return c;
 }
 
-void decompress(dimensions d, string compressed_file, string output_file, double *data, vector<Slice>& cutout, bool autocrop, bool verbose, bool debug) {
-
+IOType decompress_stream(dimensions d, istream &compressed_stream, ostream &output_stream, const double *data, vector<Slice>& cutout, bool autocrop, bool verbose, bool debug) {
     /***************************************************/
     // Read output tensor dimensionality, sizes and type
     /***************************************************/
 
-    ifstream compressed_stream(compressed_file.c_str(), ios::in | ios::binary);
     reader r = reader(compressed_stream);
     read_stream(r, reinterpret_cast<uint8_t*> (&d.n), sizeof(d.n));
     d.s = vector<uint32_t> (d.n);
@@ -187,16 +185,23 @@ void decompress(dimensions d, string compressed_file, string output_file, double
     uint8_t io_type_code;
     read_stream(r, reinterpret_cast<uint8_t*> (&io_type_code), sizeof(io_type_code));
     uint8_t io_type_size;
-    if (io_type_code == 0)
+    IOType io_type_enum;
+    if (io_type_code == 0) {
         io_type_size = sizeof(unsigned char);
-    else if (io_type_code == 1)
+        io_type_enum = IOType::uchar_;
+    } else if (io_type_code == 1) {
         io_type_size = sizeof(unsigned short);
-    else if (io_type_code == 2)
+        io_type_enum = IOType::ushort_;
+    } else if (io_type_code == 2) {
         io_type_size = sizeof(int);
-    else if (io_type_code == 3)
+        io_type_enum = IOType::int_;
+    } else if (io_type_code == 3) {
         io_type_size = sizeof(float);
-    else
+        io_type_enum = IOType::float_;
+    } else {
         io_type_size = sizeof(double);
+        io_type_enum = IOType::double_;
+    }
 
     /*************/
     // Decode core
@@ -277,7 +282,6 @@ void decompress(dimensions d, string compressed_file, string output_file, double
         Us.push_back(U);
     }
     close_rbit(r);
-    compressed_stream.close();
 
     /*************************/
     // Autocrop (if requested)
@@ -325,7 +329,6 @@ void decompress(dimensions d, string compressed_file, string output_file, double
 
     if (verbose)
         start_timer("Casting and saving final result... ");
-    ofstream output_stream(output_file.c_str(), ios::out | ios::binary);
     size_t buf_elems = CHUNK;
     vector<uint8_t> buffer(io_type_size * buf_elems);
     size_t buffer_wpos = 0;
@@ -369,7 +372,6 @@ void decompress(dimensions d, string compressed_file, string output_file, double
     }
     if (buffer_wpos > 0)
         output_stream.write(reinterpret_cast<const char*>(&buffer[0]), io_type_size * buffer_wpos);
-    output_stream.close();
     if (verbose)
         stop_timer();
 
@@ -382,6 +384,20 @@ void decompress(dimensions d, string compressed_file, string output_file, double
         double psnr = 20 * log10((datamax - datamin) / (2 * rmse));
         cout << "eps = " << eps << ", rmse = " << rmse << ", psnr = " << psnr << endl;
     }
+
+    return io_type_enum;
+}
+
+void decompress(dimensions d, string compressed_file, string output_file, const double *data, vector<Slice>& cutout, bool autocrop, bool verbose, bool debug) {
+    ifstream compressed_stream(compressed_file.c_str(), ios::in | ios::binary);
+    ofstream output_stream(output_file.c_str(), ios::out | ios::binary);
+
+    decompress_stream(d, compressed_stream, output_stream, data, cutout, autocrop, verbose, debug);
+
+    compressed_stream.close();
+
+    output_stream.flush();
+    output_stream.close();
 }
 
 #endif // DECOMPRESS_HPP

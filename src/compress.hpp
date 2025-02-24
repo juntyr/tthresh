@@ -35,8 +35,6 @@ typedef struct {
     int core_nplanes;
 } core_struct;
 
-enum IOType { uchar_, ushort_, int_, float_, double_ };
-
 // double core_price = -1;
 // int core_nplanes;
 

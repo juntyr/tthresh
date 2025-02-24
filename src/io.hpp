@@ -14,6 +14,8 @@
 #include <string.h>
 #include <assert.h>
 
+enum IOType { uchar_, ushort_, int_, float_, double_ };
+
 struct reader {
     uint64_t rbytes;
     int8_t rbit;
@@ -38,7 +40,7 @@ struct writer {
 // Call open_wbit() before write_bits()
 // If write_bits() has been called, call close_wbit() before write_stream()
 
-void write_stream(writer &w, unsigned char *buf, size_t bytes_to_write)
+void write_stream(writer &w, uint8_t *buf, size_t bytes_to_write)
 {
     w.output.write(reinterpret_cast<char*>(buf), bytes_to_write);
     w.total_written_bytes += bytes_to_write;
