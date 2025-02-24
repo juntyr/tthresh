@@ -141,7 +141,7 @@ vector<double> dequantize(reader &r, vector<uint64_t>& current, int q, size_t po
     return c;
 }
 
-IOType decompress_stream(dimensions d, istream &compressed_stream, ostream &output_stream, const double *data, vector<Slice>& cutout, bool autocrop, bool verbose, bool debug) {
+IOType decompress_stream(dimensions &d, istream &compressed_stream, ostream &output_stream, const double *data, vector<Slice>& cutout, bool autocrop, bool verbose, bool debug) {
     /***************************************************/
     // Read output tensor dimensionality, sizes and type
     /***************************************************/
@@ -388,7 +388,7 @@ IOType decompress_stream(dimensions d, istream &compressed_stream, ostream &outp
     return io_type_enum;
 }
 
-void decompress(dimensions d, string compressed_file, string output_file, const double *data, vector<Slice>& cutout, bool autocrop, bool verbose, bool debug) {
+void decompress(dimensions &d, string compressed_file, string output_file, const double *data, vector<Slice>& cutout, bool autocrop, bool verbose, bool debug) {
     ifstream compressed_stream(compressed_file.c_str(), ios::in | ios::binary);
     ofstream output_stream(output_file.c_str(), ios::out | ios::binary);
 
