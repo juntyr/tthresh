@@ -9,6 +9,7 @@
 #ifndef __TTHRESH_HPP__
 #define __TTHRESH_HPP__
 
+#include <iostream>
 #include <vector>
 #include <stack>
 #include <chrono>
