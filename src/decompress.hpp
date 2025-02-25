@@ -36,8 +36,9 @@ vector<uint64_t> decode_array(reader &r, size_t size, bool is_core, int& q, size
 
     int zeros = 0;
     bool all_raw = false;
+    high_resolution_clock::time_point decoding_timer;
     if (verbose and is_core)
-        start_timer("Decoding core...\n");
+        decoding_timer = start_timer("Decoding core...\n");
     for (q = 63; q >= 0; --q) {
         if (verbose and is_core)
             cout << "Decoding core's bit plane p = " << q << endl;
@@ -119,7 +120,7 @@ vector<uint64_t> decode_array(reader &r, size_t size, bool is_core, int& q, size
     if (debug)
         cout << "decode_rle_time=" << decode_rle_time << ", decode_raw_time=" << decode_raw_time << ", unscramble_time=" << unscramble_time << endl;
     if (verbose and is_core)
-        stop_timer();
+        stop_timer(decoding_timer);
     return current;
 }
 
@@ -317,18 +318,20 @@ IOType decompress_stream(dimensions &d, istream &compressed_stream, ostream &out
     // Reconstruct the tensor
     /************************/
 
+    high_resolution_clock::time_point reconstructing_timer;
     if (verbose)
-        start_timer("Reconstructing tensor...\n");
+        reconstructing_timer = start_timer("Reconstructing tensor...\n");
     hosvd_decompress(d, c, Us, verbose, cutout);
     if (verbose)
-        stop_timer();
+        stop_timer(reconstructing_timer);
 
     /***********************************/
     // Cast and write the result on disk
     /***********************************/
 
+    high_resolution_clock::time_point saving_timer;
     if (verbose)
-        start_timer("Casting and saving final result... ");
+        saving_timer = start_timer("Casting and saving final result... ");
     size_t buf_elems = CHUNK;
     vector<uint8_t> buffer(io_type_size * buf_elems);
     size_t buffer_wpos = 0;
@@ -373,7 +376,7 @@ IOType decompress_stream(dimensions &d, istream &compressed_stream, ostream &out
     if (buffer_wpos > 0)
         output_stream.write(reinterpret_cast<const char*>(&buffer[0]), io_type_size * buffer_wpos);
     if (verbose)
-        stop_timer();
+        stop_timer(saving_timer);
 
     if (whole_reconstruction and not autocrop and data != NULL) {
         datanorm = sqrt(datanorm);

@@ -50,8 +50,9 @@ vector<uint64_t> encode_array(writer &w, dimensions d, double* c, size_t size, d
     // Find last bit plane to encode losslessly
     /******************************************/
 
+    high_resolution_clock::time_point preliminaries_timer;
     if (core_info.is_core and verbose)
-        start_timer("Preliminaries... ");
+        preliminaries_timer = start_timer("Preliminaries... ");
 
     double maximum = 0;
     vector<double> g(size);
@@ -150,14 +151,15 @@ vector<uint64_t> encode_array(writer &w, dimensions d, double* c, size_t size, d
     vector<uint64_t> current(size, 0);
 
     if (core_info.is_core and verbose)
-        stop_timer();
+        stop_timer(preliminaries_timer);
     bool done = false;
     total_bits = 0;
     size_t last_total_bits = total_bits;
     double core_size_delta = 0;
     bool all_raw = false;
+    high_resolution_clock::time_point encoding_timer;
     if (verbose)
-        start_timer("Encoding core...\n");
+        encoding_timer = start_timer("Encoding core...\n");
     for (int q = 63; q >= lastq; --q) {
         if (verbose and core_info.is_core)
             cout << "Encoding core's bit plane p = " << q;
@@ -236,7 +238,7 @@ vector<uint64_t> encode_array(writer &w, dimensions d, double* c, size_t size, d
             break;
     }
     if (verbose)
-        stop_timer();
+        stop_timer(encoding_timer);
 
     /****************************************/
     // Save signs of significant coefficients
@@ -305,8 +307,9 @@ double* compress_stream(dimensions d, const char* in, ostream &compressed_stream
     // Load input file into memory
     /*****************************/
 
+    high_resolution_clock::time_point casting_timer;
     if (verbose)
-        start_timer("Casting input data... ");
+        casting_timer = start_timer("Casting input data... ");
 
     // Cast the data to doubles
     double datamin = numeric_limits < double >::max(); // Tensor statistics
@@ -341,7 +344,7 @@ double* compress_stream(dimensions d, const char* in, ostream &compressed_stream
     }
     datanorm = sqrt(datanorm);
     if (verbose)
-        stop_timer();
+        stop_timer(casting_timer);
     if (debug) cout << "Input statistics: min = " << datamin << ", max = " << datamax << ", norm = " << datanorm << endl;
 
     /**********************************************************************/
@@ -366,8 +369,9 @@ double* compress_stream(dimensions d, const char* in, ostream &compressed_stream
     // Create and decompose the tensor
     /*********************************/
 
+    high_resolution_clock::time_point tucker_timer;
     if (verbose)
-        start_timer("Tucker decomposition...\n");
+        tucker_timer = start_timer("Tucker decomposition...\n");
     double *c = new double[size]; // Tucker core
 
     memcpy(c, data, size * sizeof(double));
@@ -376,7 +380,7 @@ double* compress_stream(dimensions d, const char* in, ostream &compressed_stream
     hosvd_compress(d, c, Us, verbose);
 
     if (verbose)
-        stop_timer();
+        stop_timer(tucker_timer);
 
     /**************************/
     // Encode and save the core
@@ -393,8 +397,9 @@ double* compress_stream(dimensions d, const char* in, ostream &compressed_stream
     // Compute and save tensor ranks
     /*******************************/
 
+    high_resolution_clock::time_point ranks_timer;
     if (verbose)
-        start_timer("Computing ranks... ");
+        ranks_timer = start_timer("Computing ranks... ");
     d.r = vector<uint32_t> (d.n, 0);
     vector<size_t> indices(d.n, 0);
     vector< RowVectorXd > slicenorms(d.n);
@@ -423,7 +428,7 @@ double* compress_stream(dimensions d, const char* in, ostream &compressed_stream
         }
     }
     if (verbose)
-        stop_timer();
+        stop_timer(ranks_timer);
 
     if (verbose) {
         cout << "Compressed tensor ranks:";
@@ -526,14 +531,15 @@ double *compress(dimensions d, string input_file, string compressed_file, string
     // Load input file into memory
     /*****************************/
 
+    high_resolution_clock::time_point input_timer;
     if (verbose)
-        start_timer("Loading input data... ");
+        input_timer = start_timer("Loading input data... ");
     input_stream.seekg(skip_bytes);
     char *in = new char[size * io_type_size];
     input_stream.read(in, size * io_type_size);
     input_stream.close();
     if (verbose)
-        stop_timer();
+        stop_timer(input_timer);
 
     ofstream compressed_stream(compressed_file.c_str(), ios::out | ios::binary);
 
