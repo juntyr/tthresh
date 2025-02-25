@@ -43,18 +43,16 @@ THE SOFTWARE.
 
 using namespace std;
 
-uint64_t encoding_bits;
-
-inline void put_bit(writer &w, char bit) {
+inline void put_bit(writer &w, uint64_t &encoding_bits, char bit) {
     write_bits(w, bit, 1);
     encoding_bits++;
 }
 
-inline void put_bit_plus_pending(writer &w, bool bit, int& pending_bits)
+inline void put_bit_plus_pending(writer &w, uint64_t &encoding_bits, bool bit, int& pending_bits)
 {
-  put_bit(w, bit);
+  put_bit(w, encoding_bits, bit);
   for ( int i = 0 ; i < pending_bits ; i++ )
-    put_bit(w, !bit);
+    put_bit(w, encoding_bits, !bit);
   pending_bits = 0;
 }
 
@@ -76,7 +74,7 @@ uint64_t encode(writer &w, vector<uint64_t>& rle) {
         count += (it->second).first;
     }
 
-    encoding_bits = 0;
+    uint64_t encoding_bits = 0;
 
 //    open_wbit();
 
@@ -152,9 +150,9 @@ uint64_t encode(writer &w, vector<uint64_t>& rle) {
 
       for ( ; ; ) {
         if ( high < ONE_HALF )
-          put_bit_plus_pending(w, 0, pending_bits);
+          put_bit_plus_pending(w, encoding_bits, 0, pending_bits);
         else if ( low >= ONE_HALF )
-          put_bit_plus_pending(w, 1, pending_bits);
+          put_bit_plus_pending(w, encoding_bits, 1, pending_bits);
         else if ( low >= ONE_FOURTH && high < THREE_FOURTHS ) {
           pending_bits++;
           low -= ONE_FOURTH;
@@ -173,9 +171,9 @@ uint64_t encode(writer &w, vector<uint64_t>& rle) {
     }
     pending_bits++;
     if ( low < ONE_FOURTH )
-      put_bit_plus_pending(w, 0, pending_bits);
+      put_bit_plus_pending(w, encoding_bits, 0, pending_bits);
     else
-      put_bit_plus_pending(w, 1, pending_bits);
+      put_bit_plus_pending(w, encoding_bits, 1, pending_bits);
 
     write_bits(w, 0UL, CODE_VALUE_BITS-2); // Trailing zeros
     encoding_bits += CODE_VALUE_BITS-2;
