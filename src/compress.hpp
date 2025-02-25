@@ -332,6 +332,8 @@ double* compress_stream(dimensions d, const char* in, ostream &compressed_stream
             case IOType::float_:
                 data[i] = *reinterpret_cast< const float* >(&in[i * io_type_size]);
                 break;
+            case IOType::double_:
+                break;
         }
         datamin = min(datamin, data[i]); // Use the loop to update the statistics as well
         datamax = max(datamax, data[i]);
