@@ -85,7 +85,9 @@ void read_stream(reader &r, uint8_t *buf, size_t bytes_to_read)
     r.input.read(reinterpret_cast<char *>(buf), bytes_to_read);
     size_t howmany = r.input.gcount();
     if (howmany != bytes_to_read) {
-        cout << "Error: tried to read " << bytes_to_read << " bytes, got only " << howmany << endl;
+        stringstream message;
+        message << "tried to read " << bytes_to_read << " bytes, got only " << howmany;
+        throw std::length_error(message.str());
         exit(1);
     }
 }

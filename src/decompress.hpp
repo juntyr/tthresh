@@ -149,6 +149,11 @@ IOType decompress_stream(dimensions &d, istream &compressed_stream, ostream &out
 
     reader r = reader(compressed_stream);
     read_stream(r, reinterpret_cast<uint8_t*> (&d.n), sizeof(d.n));
+
+    if (d.n < 3) {
+        throw std::length_error("corrupted compressed data has insufficient dimensionality");
+    }
+
     d.s = vector<uint32_t> (d.n);
     read_stream(r, reinterpret_cast<uint8_t*> (&d.s[0]), d.n * sizeof(d.s[0]));
 
